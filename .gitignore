@@ -1,0 +1,28 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.DS_Store
+.env
+.venv/
+*.log
+
+# ---- IDE ----
+.idea/
+.vscode/
+
+# ---- Keys / Secrets / Tokens ----
+parameters/keys/
+parameters/keys/*.json
+
+# ---- BigQuery Credentials ----
+*.json
+credentials.json
+service-account.json
+
+# ---- Local data ----
+tests/example_input_tables/*.csv
+
+# ---- Uvicorn reload artifacts ----
+*.db

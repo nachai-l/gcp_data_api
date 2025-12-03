@@ -1,0 +1,48 @@
+gcp:
+  project_id: poc-piloturl-nonprod
+  dataset: gold_layer
+  location: asia-southeast1
+
+tables:
+  student: "student"
+  education: "education"
+  experience: "experience"
+  awards: "awards"
+  extracurriculars: "extracurriculars"
+  skills: "skills"
+  publications: "publications"
+  references: "references"
+  training: "training"
+  additional_info: "additional_info"
+  role_taxonomy_roles: "role_taxonomy_roles"
+  role_taxonomy_required_skills: "role_taxonomy_required_skills"
+  jd_taxonomy: "jd_taxonomy"
+  jd_taxonomy_required_skills: "jd_taxonomy_required_skills"
+  jd_taxonomy_responsibilities: "jd_taxonomy_responsibilities"
+  template_info: "template_info"
+
+allowed_sections:
+  - profile_summary
+  - skills
+  - education
+  - experience
+  - projects
+  - awards
+  - training
+  - publications
+  - extracurriculars
+  - references
+  - additional_info
+
+defaults:
+  ordering:
+    education: "ORDER BY start_date DESC, graduation_date DESC"
+    experience: "ORDER BY start_date DESC, end_date DESC"
+    responsibilities: "ORDER BY resp_index"
+  limit_single_row: 1
+
+columns:
+  key_user_id: "user_id"
+  key_role_id: "role_id"
+  key_jd_id: "jd_id"
+  key_template_id: "template_id"
