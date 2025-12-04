@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from database.bigquery_client import run_query
+from database.bigquery_client import run_query, async_run_query
 from functions.utils.settings import get_settings
 
 
@@ -42,7 +42,7 @@ class RoleRepository:
             ),
         }
 
-    # ---------- Role taxonomy ----------
+    # ---------- Role taxonomy (sync) ----------
 
     def get_role(self, role_id: str) -> Optional[Dict[str, Any]]:
         """Return single role_taxonomy_roles row, or None if not found."""
@@ -67,7 +67,7 @@ class RoleRepository:
         """
         return run_query(sql)
 
-    # ---------- JD taxonomy ----------
+    # ---------- JD taxonomy (sync) ----------
 
     def get_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
         """Return single jd_taxonomy row, or None if not found."""
@@ -103,7 +103,7 @@ class RoleRepository:
         """
         return run_query(sql)
 
-    # ---------- Templates ----------
+    # ---------- Templates (sync) ----------
 
     def get_template_info(self, template_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -126,4 +126,77 @@ class RoleRepository:
         LIMIT 1
         """
         rows = run_query(sql)
+        return rows[0] if rows else None
+
+    # ------------------------------------------------------------------
+    # Async counterparts (for Option A1 parallelization)
+    # ------------------------------------------------------------------
+
+    async def aget_role(self, role_id: str) -> Optional[Dict[str, Any]]:
+        """Async version of get_role, suitable for asyncio.gather."""
+        table = self.tables["roles"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE role_id = "{role_id}"
+        LIMIT 1
+        """
+        rows = await async_run_query(sql)
+        return rows[0] if rows else None
+
+    async def aget_role_required_skills(self, role_id: str) -> List[Dict[str, Any]]:
+        """Async version of get_role_required_skills."""
+        table = self.tables["role_required_skills"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE role_id = "{role_id}"
+        ORDER BY skill_id
+        """
+        return await async_run_query(sql)
+
+    async def aget_jd(self, jd_id: str) -> Optional[Dict[str, Any]]:
+        """Async version of get_jd."""
+        table = self.tables["jds"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE jd_id = "{jd_id}"
+        LIMIT 1
+        """
+        rows = await async_run_query(sql)
+        return rows[0] if rows else None
+
+    async def aget_jd_required_skills(self, jd_id: str) -> List[Dict[str, Any]]:
+        """Async version of get_jd_required_skills."""
+        table = self.tables["jd_required_skills"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE jd_id = "{jd_id}"
+        ORDER BY skill_id
+        """
+        return await async_run_query(sql)
+
+    async def aget_jd_responsibilities(self, jd_id: str) -> List[Dict[str, Any]]:
+        """Async version of get_jd_responsibilities."""
+        table = self.tables["jd_responsibilities"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE jd_id = "{jd_id}"
+        ORDER BY responsibility_index
+        """
+        return await async_run_query(sql)
+
+    async def aget_template_info(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """Async version of get_template_info."""
+        table = self.tables["template_info"]
+        sql = f"""
+        SELECT *
+        FROM `{table}`
+        WHERE template_id = "{template_id}"
+        LIMIT 1
+        """
+        rows = await async_run_query(sql)
         return rows[0] if rows else None

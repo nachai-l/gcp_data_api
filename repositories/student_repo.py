@@ -43,10 +43,7 @@ class StudentRepository:
         return run_query(sql)
 
     def _select_by_user(self, table: str, extra: str = "") -> List[Dict[str, Any]]:
-        cond = f"{self.user_col} = @user_id"
-        if extra:
-            cond += f" AND {extra}"
-        # For now just inline – we can parameterize later if needed
+        # NOTE: This helper is currently unused; left as-is to avoid breaking callers.
         dataset = self.settings.bq_dataset_id
         sql = f"""
             SELECT *
@@ -55,7 +52,7 @@ class StudentRepository:
         """
         return run_query(sql)
 
-    # ---- public methods used by orchestrator ----
+    # ---- public methods used by orchestrator (existing) ----
 
     def get_student_core(self, user_id: str) -> Optional[Dict[str, Any]]:
         dataset = self.settings.bq_dataset_id
@@ -150,3 +147,97 @@ class StudentRepository:
             WHERE {self.user_col} = '{user_id}'
         """
         return run_query(sql)
+
+    # ---- NEW: Single nested-query for full student profile (Option B) ----
+
+    def get_student_full_profile_nested(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a student's full profile (core + all child tables) using a single
+        BigQuery query with ARRAY(...) sub-selects.
+
+        - Missing data in child tables is safe: BigQuery returns [] (empty array).
+        - Returns None if the student core row is not found.
+        """
+        dataset = self.settings.bq_dataset_id
+        project = self.settings.gcp_project_id
+
+        # These will typically be like "ORDER BY end_date DESC" or empty string.
+        order_edu = self.order_education or ""
+        order_exp = self.order_experience or ""
+
+        sql = f"""
+            SELECT
+              s.*,
+
+              -- Education
+              ARRAY(
+                SELECT AS STRUCT e.*
+                FROM `{project}.{dataset}.{self.tbl_education}` e
+                WHERE e.{self.user_col} = '{user_id}'
+                {order_edu}
+              ) AS education,
+
+              -- Experience
+              ARRAY(
+                SELECT AS STRUCT ex.*
+                FROM `{project}.{dataset}.{self.tbl_experience}` ex
+                WHERE ex.{self.user_col} = '{user_id}'
+                {order_exp}
+              ) AS experience,
+
+              -- Skills
+              ARRAY(
+                SELECT AS STRUCT sk.*
+                FROM `{project}.{dataset}.{self.tbl_skills}` sk
+                WHERE sk.{self.user_col} = '{user_id}'
+              ) AS skills,
+
+              -- Awards
+              ARRAY(
+                SELECT AS STRUCT a.*
+                FROM `{project}.{dataset}.{self.tbl_awards}` a
+                WHERE a.{self.user_col} = '{user_id}'
+              ) AS awards,
+
+              -- Extracurriculars
+              ARRAY(
+                SELECT AS STRUCT exu.*
+                FROM `{project}.{dataset}.{self.tbl_extracurriculars}` exu
+                WHERE exu.{self.user_col} = '{user_id}'
+              ) AS extracurriculars,
+
+              -- Publications
+              ARRAY(
+                SELECT AS STRUCT p.*
+                FROM `{project}.{dataset}.{self.tbl_publications}` p
+                WHERE p.{self.user_col} = '{user_id}'
+              ) AS publications,
+
+              -- Training
+              ARRAY(
+                SELECT AS STRUCT tr.*
+                FROM `{project}.{dataset}.{self.tbl_training}` tr
+                WHERE tr.{self.user_col} = '{user_id}'
+              ) AS training,
+
+              -- References
+              ARRAY(
+                SELECT AS STRUCT r.*
+                FROM `{project}.{dataset}.{self.tbl_references}` r
+                WHERE r.{self.user_col} = '{user_id}'
+              ) AS references,
+
+              -- Additional Info
+              ARRAY(
+                SELECT AS STRUCT ai.*
+                FROM `{project}.{dataset}.{self.tbl_additional_info}` ai
+                WHERE ai.{self.user_col} = '{user_id}'
+              ) AS additional_info
+
+            FROM `{project}.{dataset}.{self.tbl_student}` AS s
+            WHERE s.{self.user_col} = '{user_id}'
+            LIMIT {self.settings.default_limit_single_row}
+        """
+
+        rows = run_query(sql)
+        return rows[0] if rows else None

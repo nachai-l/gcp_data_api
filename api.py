@@ -82,7 +82,7 @@ async def get_full_student_profile(user_id: str) -> dict:
     - additional_info
     """
     try:
-        profile = hydrate_student_profile(user_id)
+        profile = await hydrate_student_profile(user_id)
     except ValueError as e:
         # Orchestrator uses ValueError when core student row is missing
         raise HTTPException(status_code=404, detail=str(e))
