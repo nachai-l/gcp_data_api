@@ -1,84 +1,113 @@
 # 📘 GCP Data API – Student Profile & Taxonomy Service
 
-**FastAPI service for accessing BigQuery-backed e-portfolio data**
+**FastAPI + BigQuery service powering the E-Portfolio (CV) Generation System**
 
 ---
 
 ## 🚀 Overview
 
-This project provides a **data access layer** for e-portfolio generation systems.
+This service provides the **data access layer** for the CV Generation pipeline.
 It exposes a clean HTTP API to retrieve:
 
-* Student full profiles
-* Role taxonomy (roles + required skills)
-* Job description (JD) taxonomy
-* Template metadata for CV generation
+* **Student full profiles** (nested query, 1 BigQuery call)
+* **Role taxonomy** (roles + required skills)
+* **Job Description (JD) taxonomy**
+* **Template metadata** used by the CV generator
 
-All data is stored in **Google BigQuery**, accessed through repository classes that keep storage details abstracted behind a simple interface.
-
-This service is designed to be deployed on **Google Cloud Run**, but can also run locally.
+All data lives in **Google BigQuery**.
+The API is deployed on **Google Cloud Run** (fully serverless, autoscaling).
 
 ---
 
-## 🏗️ Project Structure
+## 🏗️ Updated Architecture Highlights
+
+### 🔹 **Single nested BigQuery query for `/full-profile`**
+
+Replaced 10 sequential BigQuery queries with **one array-aggregated query**:
+
+* `student`
+* `education`
+* `experience`
+* `skills`
+* `awards`
+* `extracurriculars`
+* `publications`
+* `training`
+* `references`
+* `additional_info`
+
+This reduces latency from **~80 seconds → ~2–3 seconds**.
+
+### 🔹 **Async endpoints ready for Orchestrator parallelization**
+
+The Data API is fully compatible with:
+
+* `httpx.AsyncClient`
+* `asyncio.gather`
+* Cloud-Run-to-Cloud-Run calls
+
+---
+
+## 🧱 Project Structure
 
 ```
 eport_data_api/
-├── api.py                         # FastAPI entrypoint
+├── api.py                         # FastAPI entrypoint (async)
 ├── config/
-│   └── settings.py                # Optional project settings (future use)
+│   └── settings.py                # Reads env vars (project, dataset, region)
 ├── database/
-│   └── bigquery_client.py         # BigQuery client factory
+│   └── bigquery_client.py         # BigQuery client wrapper (sync)
 ├── functions/
 │   └── orchestrator/
-│       └── eport_data_gathering_orchestrator.py
+│       └── eport_data_gathering_orchestrator.py  # Hydration logic
 ├── repositories/
-│   ├── student_repo.py            # Student data queries
+│   ├── student_repo.py            # Nested full-profile BigQuery query
 │   ├── role_repo.py               # Role/JD/template queries
 │   └── __init__.py
 ├── parameters/
 │   ├── schemas/                   # Optional schema definitions
-│   └── keys/                      # **Ignored** (local keys only)
+│   └── keys/                      # (ignored)
 ├── tests/
-│   ├── example_input_tables/      # CSVs for loading sample data
-│   └── load_csv_files2_bigquery.py# Bulk loader into BigQuery
-└── requirements.txt / pyproject.toml
+│   ├── example_input_tables/      
+│   └── load_csv_files2_bigquery.py# Bulk CSV → BigQuery loader
+└── requirements.txt
 ```
 
 ---
 
 ## ⚙️ Features
 
-### ✔ Student Data Aggregation
+### ✔ **Fast Student Full-Profile Aggregation**
 
 `/v1/students/{user_id}/full-profile`
-Combines data from:
 
-* student
-* education
-* experience
-* skills
-* awards
-* extracurriculars
-* publications
-* training
-* references
-* additional_info
+Powered by a single BigQuery query with `ARRAY(SELECT AS STRUCT ...)`
+Handles missing tables gracefully (returns empty lists).
 
-### ✔ Role Taxonomy
+### ✔ **Role Taxonomy**
 
 `/v1/roles/{role_id}/taxonomy`
-Includes role metadata + required skills.
 
-### ✔ Job Description (JD) Taxonomy
+Includes:
+
+* Role metadata
+* Required skills (ordered)
+
+### ✔ **JD Taxonomy**
 
 `/v1/jds/{jd_id}/taxonomy`
-Includes job title, company, required skills, responsibilities.
 
-### ✔ Template Metadata
+Includes:
+
+* Job metadata
+* Required skills
+* Responsibilities
+
+### ✔ **Template Metadata**
 
 `/v1/templates/{template_id}`
-Used by the external CV generation engine.
+
+Used by the CV Generation Orchestrator.
 
 ---
 
@@ -90,36 +119,34 @@ Used by the external CV generation engine.
 uv sync
 ```
 
-or
+or:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Export your BigQuery service account key
+### 2. Authenticate via GCP service account
 
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/key.json"
 ```
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json"
-```
 
-(Your JSON key **must not** be committed — `.gitignore` enforces this.)
-
-### 3. Start FastAPI locally
+### 3. Run FastAPI
 
 ```bash
 uvicorn api:app --reload --port 8001
 ```
 
-API docs automatically available at:
+Open docs:
 
-🔗 [http://localhost:8001/docs](http://localhost:8001/docs)
-🔗 [http://localhost:8001/redoc](http://localhost:8001/redoc)
+* [http://localhost:8001/docs](http://localhost:8001/docs)
+* [http://localhost:8001/redoc](http://localhost:8001/redoc)
 
 ---
 
-## 🧪 Loading Sample Data into BigQuery
+## 🔽 Loading Sample Data Into BigQuery
 
-Use the included helper script:
+Use included loader:
 
 ```bash
 python tests/example_input_tables/load_csv_files2_bigquery.py \
@@ -128,7 +155,7 @@ python tests/example_input_tables/load_csv_files2_bigquery.py \
     --location asia-southeast1
 ```
 
-Supports autodetection, delimiter detection, BOM-safe header parsing.
+Supports schema autodetect + BOM-safe CSV headers.
 
 ---
 
@@ -136,48 +163,70 @@ Supports autodetection, delimiter detection, BOM-safe header parsing.
 
 ### Students
 
-| Method | Endpoint                              | Description             |
-| ------ | ------------------------------------- | ----------------------- |
-| GET    | `/v1/students/{user_id}/core`         | Raw student row         |
-| GET    | `/v1/students/{user_id}/full-profile` | Aggregated full profile |
+| Method | Endpoint                              | Description           |
+| ------ | ------------------------------------- | --------------------- |
+| GET    | `/v1/students/{user_id}/core`         | Raw student row       |
+| GET    | `/v1/students/{user_id}/full-profile` | Hydrated full profile |
 
 ### Roles
 
-| Method | Endpoint                       | Description            |
-| ------ | ------------------------------ | ---------------------- |
-| GET    | `/v1/roles/{role_id}/core`     | Raw role data          |
-| GET    | `/v1/roles/{role_id}/taxonomy` | Hydrated role taxonomy |
+| Method | Endpoint                       | Description     |
+| ------ | ------------------------------ | --------------- |
+| GET    | `/v1/roles/{role_id}/core`     | Raw role record |
+| GET    | `/v1/roles/{role_id}/taxonomy` | Role + skills   |
 
-### Job Descriptions
+### JDs
 
-| Method | Endpoint                   | Description          |
-| ------ | -------------------------- | -------------------- |
-| GET    | `/v1/jds/{jd_id}/core`     | Raw JD data          |
-| GET    | `/v1/jds/{jd_id}/taxonomy` | Hydrated JD taxonomy |
+| Method | Endpoint                   | Description         |
+| ------ | -------------------------- | ------------------- |
+| GET    | `/v1/jds/{jd_id}/core`     | Raw JD record       |
+| GET    | `/v1/jds/{jd_id}/taxonomy` | JD + skills + tasks |
 
 ### Templates
 
-| Method | Endpoint                      | Description       |
-| ------ | ----------------------------- | ----------------- |
-| GET    | `/v1/templates/{template_id}` | Template metadata |
+| Method | Endpoint                      | Description   |
+| ------ | ----------------------------- | ------------- |
+| GET    | `/v1/templates/{template_id}` | Template info |
 
 ---
 
-## 🚫 Security Notes
+## ☁️ Deploying to Cloud Run
 
-* **NEVER** commit any files inside `parameters/keys/`
-* `.gitignore` explicitly blocks JSON keys
-* Use GCP Secret Manager for production deployments
-* Enable GitHub **Secret Scanning** for this repository
+### Build with Cloud Build
+
+```bash
+gcloud builds submit --tag gcr.io/PROJECT_ID/eport-data-api
+```
+
+### Deploy
+
+```bash
+gcloud run deploy eport-data-api \
+  --image gcr.io/PROJECT_ID/eport-data-api \
+  --region asia-southeast1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --set-env-vars GCP_PROJECT_ID=...,BQ_DATASET=gold_layer,BQ_LOCATION=asia-southeast1 \
+  --service-account=YOUR_SERVICE_ACCOUNT
+```
+
+---
+
+## 🔒 Security Notes
+
+* Never commit keys in `parameters/keys/`
+* Use **GCP Secret Manager** for production secrets
+* Cloud Run uses service account identity → no JSON keys needed in production
+* Enable GitHub Secret Scanning
 
 ---
 
 ## 🧩 Future Enhancements
 
-* Parallelized BigQuery queries for faster full-profile retrieval
-* Stateless caching layer (Cloud Run → Memorystore)
-* Pydantic schemas for response typing
-* Automated CI/CD to Cloud Run
-* Unit tests with BigQuery emulator (optional)
+* Add `async BigQuery client` for fully async repo layer
+* Add Redis/Memorystore caching
+* Publish OpenAPI schema to Artifact Registry
+* Add Cloud Build CI/CD pipeline
+* Add response Pydantic models
 
 ---
